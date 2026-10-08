@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新着情報管理ミニCMS</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+<h1>新着情報管理ミニCMS</h1>
+<p>自社サーバ内で動く想定の管理画面の試作。初期表示で8件の架空データを一覧表示する。</p>
+</header>
+<main>
+<section class="panel">
+<h2>ダッシュボード</h2>
+<div class="counts" id="counts"></div>
+</section>
+<section class="panel">
+<h2>表示条件と権限</h2>
+<div class="controls">
+<div><label for="role">権限</label><select id="role"><option>管理者</option><option selected>編集者</option><option>閲覧者</option></select></div>
+<div><label for="cat">カテゴリー</label><select id="cat"><option>すべて</option><option>お知らせ</option><option>採用情報</option><option>製品情報</option><option>イベント</option></select></div>
+<div><label for="status">状態</label><select id="status"><option>すべて</option><option>公開</option><option>下書き</option></select></div>
+<div><label for="kw">キーワード</label><input id="kw" type="search" placeholder="例: 採用"></div>
+</div>
+<p class="meta" id="permNote"></p>
+</section>
+<section class="panel">
+<h2>新規登録（編集者以上）</h2>
+<form id="form">
+<div class="row">
+<div class="field"><label class="meta" for="fTitle">タイトル</label><input id="fTitle" maxlength="60" placeholder="例: 秋の見学会の案内"></div>
+<div class="field"><label class="meta" for="fCat">カテゴリー</label><select id="fCat"><option>お知らせ</option><option>採用情報</option><option>製品情報</option><option>イベント</option></select></div>
+</div>
+<div class="field"><label class="meta" for="fBody">本文</label><textarea id="fBody" rows="2" placeholder="本文を入力"></textarea></div>
+<p id="error"></p>
+<button class="primary" type="submit" id="submitBtn">下書きとして登録する</button>
+</form>
+</section>
+<section>
+<div class="cards" id="list"></div>
+</section>
+</main>
+<footer>架空データのみ使用。公開・削除は管理者のみ可、編集者は登録・編集のみ可、閲覧者は操作不可という権限分けを試す。</footer>
+<script src="cms.js"></script>
+<script>
+const items = CMS.SEED_ITEMS.map(x => ({...x}));
+const $ = (id) => document.getElementById(id);
+function render() {
+  const role = $("role").value;
+  const filtered = CMS.filterItems(items, { category: $("cat").value, status: $("status").value, keyword: $("kw").value });
+  const counts = CMS.countByCategory(items);
+  $("counts").innerHTML = "<div class='count'><b>" + items.length + "</b><span>登録件数</span></div>" +
+    Object.keys(counts).map(k => "<div class='count'><b>" + counts[k] + "</b><span>" + k + "</span></div>").join("");
+  $("permNote").textContent = role === "管理者" ? "管理者: 登録・編集・削除・公開切替ができる" :
+    role === "編集者" ? "編集者: 登録・編集ができる（削除と公開切替は管理者のみ）" : "閲覧者: 一覧を見るだけで操作はできない";
+  $("submitBtn").disabled = !CMS.canCreate(role);
+  $("list").innerHTML = filtered.map(it =>
+    "<article class='card'><h3>" + escapeHtml(it.title) + "</h3>" +
+    "<div class='meta'>" + it.date + " ・ " + it.category + " " +
+    "<span class='badge " + (it.status === "公開" ? "open" : "draft") + "'>" + it.status + "</span></div>" +
+    "<div class='meta'>" + stripTags(it.bodyHtml).slice(0, 60) + "</div>" +
+    "<div class='actions'><button " + (CMS.canEdit(role) ? "" : "disabled") + " data-edit='" + it.id + "'>編集</button>" +
+    "<button " + (CMS.canDelete(role) ? "" : "disabled") + " data-del='" + it.id + "'>削除</button>" +
+    "<button " + (CMS.canPublish(role) ? "" : "disabled") + " data-pub='" + it.id + "'>" + (it.status === "公開" ? "下書きに戻す" : "公開する") + "</button></div></article>"
+  ).join("") || "<p>条件に合う記事がありません。</p>";
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    const i = items.findIndex(x => x.id === b.getAttribute("data-del"));
+    if (i >= 0) items.splice(i, 1);
+    render();
+  });
+  document.querySelectorAll("[data-pub]").forEach(b => b.onclick = () => {
+    const it = items.find(x => x.id === b.getAttribute("data-pub"));
+    if (it) it.status = it.status === "公開" ? "下書き" : "公開";
+    render();
+  });
+  document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    const it = items.find(x => x.id === b.getAttribute("data-edit"));
+    if (it) { $("fTitle").value = it.title; $("fCat").value = it.category; $("fBody").value = stripTags(it.bodyHtml); window.scrollTo(0, 0); }
+  });
+}
+function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function stripTags(s) { const d = document.createElement("div"); d.innerHTML = s; return d.textContent || ""; }
+["role","cat","status"].forEach(id => $(id).addEventListener("change", render));
+$("kw").addEventListener("input", render);
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const r = CMS.createNews(items, { title: $("fTitle").value, category: $("fCat").value, bodyHtml: "<p>" + escapeHtml($("fBody").value) + "</p>" });
+  if (r.errors.length) { $("error").textContent = r.errors.join(" / "); return; }
+  $("error").textContent = "";
+  items.push(r.item);
+  $("fTitle").value = ""; $("fBody").value = "";
+  render();
+});
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"name": "cms-news-poc", "private": true, "type": "commonjs",   "scripts": {"test": "node --test test/"}, "version": "0.1.0"}
